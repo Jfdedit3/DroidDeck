@@ -131,12 +131,44 @@ public final class LinuxEngine {
             for (Path p : (Iterable<Path>) paths.sorted(Comparator.reverseOrder())::iterator) Files.deleteIfExists(p);
         }
     }
+
+    /**
+     * Ubuntu 26.04 ships Rust/uutils multi-call coreutils. Older PRoot loaders
+     * expose the loader name in AT_EXECFN, breaking ls, mkdir, env, etc.
+     * Ubuntu keeps the GNU equivalents prefixed by "gnu" (gnuls, gnumkdir).
+     * Prepare PATH shims on the host filesystem; do not overwrite dpkg-owned
+     * /usr/bin links. This also repairs installations already extracted.
+     */
+    private void prepareGnuCoreutils() throws IOException {
+        Path usrBin = new File(root(), "usr/bin").toPath();
+        Path shims = new File(root(), "usr/local/bin").toPath();
+        Files.createDirectories(shims);
+        int linked = 0;
+        try (DirectoryStream<Path> files = Files.newDirectoryStream(usrBin, "gnu*")) {
+            for (Path source : files) {
+                String name = source.getFileName().toString();
+                if (!name.startsWith("gnu") || name.length() <= 3 || !Files.isRegularFile(source)) continue;
+                String original = name.substring(3);
+                Path existing = usrBin.resolve(original);
+                if (!Files.isSymbolicLink(existing)) continue;
+                String link = Files.readSymbolicLink(existing).toString();
+                if (!link.contains("coreutils")) continue;
+                Path shim = shims.resolve(original);
+                if (Files.exists(shim, LinkOption.NOFOLLOW_LINKS)) continue;
+                Files.createSymbolicLink(shim, Paths.get("/usr/bin/" + name));
+                linked++;
+            }
+        }
+        android.util.Log.i("LinuxEngine", "GNU coreutils compatibility shims: " + linked);
+    }
+
     public void execute(String command, ConsoleListener callback) {
         if (process != null && process.isAlive()) { callback.line("Une autre commande est en cours"); callback.done(-1); return; }
         new Thread(() -> {
             int exitCode = -1;
             try {
                 if (!isInstalled() || !prootReady()) throw new IOException("Ubuntu / PRoot non installé");
+                prepareGnuCoreutils();
                 String nativeDir = context.getApplicationInfo().nativeLibraryDir;
                 String proot = nativeDir + "/libproot.so";
                 String loader = nativeDir + "/libproot-loader.so";
@@ -149,13 +181,16 @@ public final class LinuxEngine {
                     "-b", "/dev", "-b", "/proc", "-b", "/sys");
                 File external = Environment.getExternalStorageDirectory();
                 if (external.isDirectory()) Collections.addAll(args, "-b", external.getAbsolutePath() + ":/sdcard");
-                Collections.addAll(args, "/usr/bin/env", "-i", "HOME=/root", "USER=root",
-                    "LANG=C.UTF-8", "TERM=xterm-256color", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-                    "/bin/sh", "-lc", command);
+                Collections.addAll(args, "/bin/sh", "-c", command);
                 ProcessBuilder pb = new ProcessBuilder(args);
                 pb.directory(context.getFilesDir());
                 pb.redirectErrorStream(true);
                 pb.environment().put("PROOT_LOADER", loader);
+                pb.environment().put("HOME", "/root");
+                pb.environment().put("USER", "root");
+                pb.environment().put("LANG", "C.UTF-8");
+                pb.environment().put("TERM", "xterm-256color");
+                pb.environment().put("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin");
                 pb.environment().put("PROOT_TMP_DIR", temp.getAbsolutePath());
                 pb.environment().put("TMPDIR", temp.getAbsolutePath());
                 process = pb.start();
