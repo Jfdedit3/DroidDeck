@@ -227,7 +227,11 @@ public final class LinuxEngine {
                 String nativeDir = context.getApplicationInfo().nativeLibraryDir;
                 String proot = nativeDir + "/libproot.so";
                 String loader = nativeDir + "/libproot-loader.so";
-                File temp = new File(context.getCacheDir(), "proot-tmp"); temp.mkdirs();
+                File temp = new File(context.getCacheDir(), "proot-tmp");
+                if (!temp.isDirectory() && !temp.mkdirs())
+                    throw new IOException("Impossible de creer le dossier temporaire PRoot");
+                // The host PRoot scratch directory must stay an Android-accessible path.
+                // Ubuntu package scripts need a separate guest-visible /tmp.
                 ArrayList<String> args = new ArrayList<>();
                 // Android's system linker can execute native .so files from the APK.
                 if (Build.VERSION.SDK_INT >= 29) args.add("/system/bin/linker64");
@@ -236,7 +240,8 @@ public final class LinuxEngine {
                     "-b", "/dev", "-b", "/proc", "-b", "/sys");
                 File external = Environment.getExternalStorageDirectory();
                 if (external.isDirectory()) Collections.addAll(args, "-b", external.getAbsolutePath() + ":/sdcard");
-                Collections.addAll(args, "/bin/sh", "-c", command);
+                Collections.addAll(args, "/bin/sh", "-c",
+                    "mkdir -p /tmp /var/tmp && chmod 1777 /tmp /var/tmp && export TMPDIR=/tmp && " + command);
                 ProcessBuilder pb = new ProcessBuilder(args);
                 pb.directory(context.getFilesDir());
                 pb.redirectErrorStream(true);
@@ -247,6 +252,7 @@ public final class LinuxEngine {
                 pb.environment().put("TERM", "xterm-256color");
                 pb.environment().put("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin");
                 pb.environment().put("PROOT_TMP_DIR", temp.getAbsolutePath());
+                // Keep the host TMPDIR for PRoot itself. The guest shell overrides it to /tmp.
                 pb.environment().put("TMPDIR", temp.getAbsolutePath());
                 process = pb.start();
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
