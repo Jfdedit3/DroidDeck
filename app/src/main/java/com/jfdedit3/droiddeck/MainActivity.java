@@ -2,6 +2,8 @@ package com.jfdedit3.droiddeck;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.os.SystemClock;
+import android.util.Log;
 import android.os.Bundle;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -23,10 +25,13 @@ public class MainActivity extends Activity {
     private DroidDeckRuntimeInstaller official;
     private ScrollView outputScroll;
     private volatile boolean busy;
+    private long lastInstallUiUpdate;
+    private static final String CRASH_FILE = "droiddeck-crash.txt";
     private LinuxEngine engine;
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        installCrashReporter();
         engine = new LinuxEngine(this);
         plasma = new PlasmaManager(this, engine);
         official = new DroidDeckRuntimeInstaller(this);
@@ -109,6 +114,7 @@ public class MainActivity extends Activity {
         text(infoPanel, "✅ Installation Ubuntu Base ARM64\n✅ Téléchargement vérifié SHA-256\n✅ Lancement de commandes via PRoot\n✅ Journal et arrêt des commandes\n⏳ Terminal interactif complet (PTY)\n✅ Installation KDE Plasma X11 et serveur VNC\n⏳ Affichage intégré dans l'APK (visualiseur VNC externe requis)\n⏳ FEX / Wine / Proton", 13, 0xffbecdde, false);
         setContentView(scroll);
         refresh();
+        showPreviousCrash();
     }
 
     private void refresh() {
@@ -134,28 +140,83 @@ public class MainActivity extends Activity {
         }
         new AlertDialog.Builder(this)
             .setTitle("Installer l'Ubuntu Plasma officiel de DroidDeck")
-            .setMessage("Téléchargement des archives officielles vérifiées : Ubuntu ARM64 (~292 Mo) et Kubuntu Plasma (~898 Mo). Environ 1,2 Go à télécharger, et plusieurs Go libres nécessaires pour l'extraction et la sauvegarde de l'ancien Ubuntu. L'ancienne installation sera conservée sous 'ubuntu.before-droiddeck'. Voulez-vous continuer ?")
+            .setMessage("Archives officielles vérifiées : Ubuntu ARM64 (292 Mo) + Kubuntu Plasma (898 Mo). Prévois environ 1,2 Go de téléchargement et plusieurs Go pour l'extraction. Une sauvegarde de l'ancien Ubuntu sera conservée. Continuer ?")
             .setNegativeButton("Annuler", null)
             .setPositiveButton("Installer", (dialog, which) -> {
                 busy = true;
-                install.setEnabled(false);
+                lastInstallUiUpdate = 0;
                 refresh();
-                append("\nInstallation des archives Ubuntu + Plasma officielles de DroidDeck...\n");
-                official.install((message, progress, finished) -> runOnUiThread(() -> {
-                    if (progress >= 0) state.setText(message + " : " + progress + "%");
-                    else state.setText(message);
-                    if (message.startsWith("Échec") || finished) append(message + "\n");
-                    if (finished) {
-                        busy = false;
-                        refresh();
-                        if (official.installed())
-                            new AlertDialog.Builder(this)
-                                .setTitle("Environnement officiel installé")
-                                .setMessage("Ubuntu et Kubuntu Plasma ont été extraits depuis DroidDeck. Attention : le pack utilise le bureau Wayland de DroidDeck, dont l'affichage Android n'est pas encore intégré à DroidDeck Lite. Le bouton VNC historique ne peut pas lancer cette session.")
-                                .setPositiveButton("OK", null).show();
-                    }
-                }));
+                append("\nTéléchargement officiel DroidDeck démarré...\n");
+                try {
+                    official.install((message, progress, finished) -> {
+                        // Limit queued Android UI updates on high-speed connections.
+                        long now = SystemClock.elapsedRealtime();
+                        if (!finished && progress >= 0 && now - lastInstallUiUpdate < 350) return;
+                        lastInstallUiUpdate = now;
+                        runOnUiThread(() -> {
+                            state.setText(progress >= 0 ? message + " : " + progress + "%" : message);
+                            if (finished) {
+                                append(message + "\n");
+                                busy = false;
+                                refresh();
+                                if (official.installed())
+                                    new AlertDialog.Builder(this)
+                                        .setTitle("Archives officielles installées")
+                                        .setMessage("Ubuntu et Kubuntu Plasma ont été extraits. L'affichage Wayland de DroidDeck n'est pas encore intégré dans DroidDeck Lite.")
+                                        .setPositiveButton("OK", null).show();
+                            }
+                        });
+                    });
+                } catch (Throwable error) {
+                    recordCrash(error);
+                    busy = false;
+                    refresh();
+                    append("Erreur au lancement de l'installation : " + error + "\n");
+                }
             }).show();
+    }
+
+    private void installCrashReporter() {
+        final Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
+            recordCrash(error);
+            if (previous != null) previous.uncaughtException(thread, error);
+        });
+    }
+
+    private void recordCrash(Throwable error) {
+        try (java.io.PrintWriter out = new java.io.PrintWriter(
+                new java.io.OutputStreamWriter(new java.io.FileOutputStream(
+                    new File(getFilesDir(), CRASH_FILE), true), java.nio.charset.StandardCharsets.UTF_8))) {
+            out.println("===== " + new java.util.Date() + " =====");
+            error.printStackTrace(out);
+        } catch (Exception ignored) {
+            Log.e("DroidDeckLite", "Could not save crash", ignored);
+        }
+    }
+
+    private void showPreviousCrash() {
+        File log = new File(getFilesDir(), CRASH_FILE);
+        if (!log.isFile()) return;
+        try {
+            byte[] data = java.nio.file.Files.readAllBytes(log.toPath());
+            String full = new String(data, java.nio.charset.StandardCharsets.UTF_8);
+            String latest = full.substring(Math.max(0, full.length() - 6000));
+            new AlertDialog.Builder(this)
+                .setTitle("Crash précédent détecté")
+                .setMessage(latest)
+                .setPositiveButton("Copier le rapport", (dialog, which) -> {
+                    android.content.ClipboardManager cb = (android.content.ClipboardManager)
+                        getSystemService(Context.CLIPBOARD_SERVICE);
+                    cb.setPrimaryClip(android.content.ClipData.newPlainText("Crash DroidDeck", latest));
+                    Toast.makeText(this, "Rapport copié", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Fermer", null)
+                .setNeutralButton("Effacer le rapport", (dialog, which) -> log.delete())
+                .show();
+        } catch (Exception error) {
+            Log.e("DroidDeckLite", "Cannot display crash log", error);
+        }
     }
 
     private void installUbuntu() {

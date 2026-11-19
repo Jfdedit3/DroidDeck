@@ -51,10 +51,18 @@ public final class DroidDeckRuntimeInstaller {
             try {
                 if (!new File(context.getApplicationInfo().nativeLibraryDir, "libproot.so").isFile())
                     throw new IOException("PRoot ARM64 absent de l'APK");
+                File archivesFolder = new File(context.getFilesDir(), "droiddeck-archives");
+                if (!archivesFolder.isDirectory() && !archivesFolder.mkdirs())
+                    throw new IOException("Impossible de créer le stockage des archives");
+                long required = SIZES[0] + SIZES[1] + 2L * 1024L * 1024L * 1024L;
+                long available = android.os.StatFs.class.cast(new android.os.StatFs(context.getFilesDir().getPath())).getAvailableBytes();
+                if (available < required)
+                    throw new IOException("Espace insuffisant : " + (required / (1024 * 1024)) +
+                        " Mo recommandés libres, disponibles " + (available / (1024 * 1024)) + " Mo");
                 File[] archives = new File[2];
                 for (int i = 0; i < 2; i++) {
                     final int part = i;
-                    File destination = new File(context.getCacheDir(), NAMES[i]);
+                    File destination = new File(archivesFolder, NAMES[i]);
                     archives[i] = destination;
                     if (!checkSha(destination, SHAS[i], SIZES[i])) {
                         l.update(i == 0 ? "Téléchargement Ubuntu DroidDeck" : "Téléchargement Plasma DroidDeck", 0, false);
@@ -107,7 +115,7 @@ public final class DroidDeckRuntimeInstaller {
                     if (stage.exists()) remove(stage);
                 }
                 l.update("Ubuntu + Plasma officiels de DroidDeck installés (" + VERSION + ")", 100, true);
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 Log.e(TAG, "Official runtime installation", e);
                 l.update("Échec installation DroidDeck : " + e.getMessage(), -1, true);
             } finally {
