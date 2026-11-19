@@ -133,35 +133,53 @@ public final class LinuxEngine {
     }
 
     /**
-     * Ubuntu 26.04 ships Rust/uutils multi-call coreutils. Older PRoot loaders
-     * expose the loader name in AT_EXECFN, breaking ls, mkdir, env, etc.
-     * Ubuntu keeps the GNU equivalents prefixed by "gnu" (gnuls, gnumkdir).
-     * Prepare PATH shims on the host filesystem; do not overwrite dpkg-owned
-     * /usr/bin links. This also repairs installations already extracted.
+     * Ubuntu 26.04's uutils entry points use AT_EXECFN to select their applet.
+     * Older PRoot loaders expose libproot-loader instead and break dpkg
+     * maintainer scripts. Merely adding PATH shims is insufficient: scripts
+     * invoke /usr/bin/mkdir, /bin/chmod and other absolute paths.
+     *
+     * On the Android host, replace ONLY package-provided symlinks that target
+     * /usr/lib/cargo/bin/coreutils/ with GNU equivalents already installed
+     * as /usr/bin/gnu<command>. Never touch unrelated executables.
+     * The operation is idempotent and rerun before every Linux command,
+     * including after package updates restore the original symlinks.
      */
     private void prepareGnuCoreutils() throws IOException {
         Path usrBin = new File(root(), "usr/bin").toPath();
         Path shims = new File(root(), "usr/local/bin").toPath();
         Files.createDirectories(shims);
-        int linked = 0;
+        int repaired = 0;
+        int pathShims = 0;
+        if (!Files.isDirectory(usrBin)) throw new IOException("Missing Ubuntu /usr/bin");
+
         try (DirectoryStream<Path> files = Files.newDirectoryStream(usrBin, "gnu*")) {
-            for (Path source : files) {
-                String name = source.getFileName().toString();
-                if (!name.startsWith("gnu") || name.length() <= 3 || !Files.isRegularFile(source)) continue;
-                String original = name.substring(3);
-                Path existing = usrBin.resolve(original);
-                if (!Files.isSymbolicLink(existing)) continue;
-                String link = Files.readSymbolicLink(existing).toString();
-                if (!link.contains("coreutils")) continue;
-                Path shim = shims.resolve(original);
-                if (Files.exists(shim, LinkOption.NOFOLLOW_LINKS)) continue;
-                Files.createSymbolicLink(shim, Paths.get("/usr/bin/" + name));
-                linked++;
+            for (Path gnu : files) {
+                String name = gnu.getFileName().toString();
+                if (!name.startsWith("gnu") || name.length() <= 3 || !Files.isRegularFile(gnu)) continue;
+                String utility = name.substring(3);
+                if (utility.indexOf('/') >= 0 || utility.equals("coreutils")) continue;
+                Path original = usrBin.resolve(utility);
+
+                // Keep a normal PATH-level fallback for callers using the shell.
+                Path shim = shims.resolve(utility);
+                if (!Files.exists(shim, LinkOption.NOFOLLOW_LINKS)) {
+                    Files.createSymbolicLink(shim, Paths.get("/usr/bin/" + name));
+                    pathShims++;
+                }
+
+                if (!Files.isSymbolicLink(original)) continue;
+                String target = Files.readSymbolicLink(original).toString();
+                // Only uutils links; do not overwrite scripts or GNU-owned binaries.
+                if (!target.contains("cargo/bin/coreutils") && !target.contains("rust-coreutils")) continue;
+                Files.delete(original);
+                Files.createSymbolicLink(original, Paths.get("/usr/bin/" + name));
+                repaired++;
             }
         }
-        android.util.Log.i("LinuxEngine", "GNU coreutils compatibility shims: " + linked);
+        android.util.Log.i("LinuxEngine",
+                "GNU compatibility: " + repaired + " uutils system links repaired, " +
+                pathShims + " PATH shims created");
     }
-
 
     /** Sync Android DNS into the app-private Ubuntu rootfs before running PRoot. */
     private void prepareDns() throws IOException {
