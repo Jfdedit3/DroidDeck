@@ -1,2 +1,0 @@
-#!/bin/sh
-exec python3 /root/.local/share/droiddeck/ctl/droiddeck-scenario "$@"

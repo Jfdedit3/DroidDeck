@@ -1,3 +1,0 @@
-Package: plymouth plymouth-* grub-* initramfs-tools initramfs-tools-* cryptsetup-initramfs linux-image-* linux-headers-* linux-modules-* linux-generic* apport whoopsie
-Pin: release *
-Pin-Priority: -1
