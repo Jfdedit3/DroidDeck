@@ -56,13 +56,13 @@ public class MainActivity extends Activity {
         TextView passwordView = text(desktopPanel, "Mot de passe VNC : " + plasma.password(), 14, 0xffbde4ff, true);
         button(desktopPanel, "Copier l'adresse et le mot de passe", false, v -> {
             android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("DroidDeck VNC", "Adresse : 127.0.0.1:5901\\nMot de passe : " + plasma.password()));
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("DroidDeck VNC", "Adresse : 127.0.0.1:5901\nMot de passe : " + plasma.password()));
             Toast.makeText(this, "Coordonnées VNC copiées", Toast.LENGTH_SHORT).show();
         });
         button(desktopPanel, "Ouvrir une application VNC", false, v -> openViewer());
         button(desktopPanel, "Arrêter la session Plasma", false, v -> {
             engine.stop();
-            append("Arrêt du processus PRoot demandé.\\n");
+            append("Arrêt du processus PRoot demandé.\n");
         });
 
         LinearLayout terminalPanel = panel(root);
@@ -102,7 +102,7 @@ public class MainActivity extends Activity {
 
         LinearLayout infoPanel = panel(root);
         text(infoPanel, "État de la version 0.3", 19, Color.WHITE, true);
-        text(infoPanel, "✅ Installation Ubuntu Base ARM64\n✅ Téléchargement vérifié SHA-256\n✅ Lancement de commandes via PRoot\n✅ Journal et arrêt des commandes\n⏳ Terminal interactif complet (PTY)\n✅ Installation KDE Plasma X11 et serveur VNC\\n⏳ Affichage intégré dans l'APK (visualiseur VNC externe requis)\n⏳ FEX / Wine / Proton", 13, 0xffbecdde, false);
+        text(infoPanel, "✅ Installation Ubuntu Base ARM64\n✅ Téléchargement vérifié SHA-256\n✅ Lancement de commandes via PRoot\n✅ Journal et arrêt des commandes\n⏳ Terminal interactif complet (PTY)\n✅ Installation KDE Plasma X11 et serveur VNC\n⏳ Affichage intégré dans l'APK (visualiseur VNC externe requis)\n⏳ FEX / Wine / Proton", 13, 0xffbecdde, false);
         setContentView(scroll);
         refresh();
     }
@@ -149,10 +149,10 @@ public class MainActivity extends Activity {
     }
     private LinuxEngine.ConsoleListener listenerFor(String operation) {
         return new LinuxEngine.ConsoleListener() {
-            @Override public void line(String line) { runOnUiThread(() -> append(line + "\\n")); }
+            @Override public void line(String line) { runOnUiThread(() -> append(line + "\n")); }
             @Override public void done(int code) {
                 runOnUiThread(() -> {
-                    append(operation + " termine (code " + code + ").\\n");
+                    append(operation + " termine (code " + code + ").\n");
                     busy = false;
                     install.setEnabled(true);
                     refresh();
@@ -166,7 +166,7 @@ public class MainActivity extends Activity {
         busy = true;
         install.setEnabled(false);
         refresh();
-        append("\\nInstallation de KDE Plasma depuis les dépôts Ubuntu...\\n");
+        append("\nInstallation de KDE Plasma depuis les dépôts Ubuntu...\n");
         plasma.install(listenerFor("Installation Plasma"));
     }
 
@@ -175,8 +175,8 @@ public class MainActivity extends Activity {
         busy = true;
         install.setEnabled(false);
         refresh();
-        append("\\nDémarrage de KDE Plasma via TigerVNC...\\n");
-        append("Connecte un visualiseur VNC à 127.0.0.1:5901 avec le mot de passe indiqué.\\n");
+        append("\nDémarrage de KDE Plasma via TigerVNC...\n");
+        append("Connecte un visualiseur VNC à 127.0.0.1:5901 avec le mot de passe indiqué.\n");
         plasma.start(listenerFor("Session Plasma"));
     }
 
