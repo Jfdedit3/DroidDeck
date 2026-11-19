@@ -162,6 +162,42 @@ public final class LinuxEngine {
         android.util.Log.i("LinuxEngine", "GNU coreutils compatibility shims: " + linked);
     }
 
+
+    /** Sync Android DNS into the app-private Ubuntu rootfs before running PRoot. */
+    private void prepareDns() throws IOException {
+        java.util.LinkedHashSet<String> servers = new java.util.LinkedHashSet<>();
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
+                context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) {
+                android.net.Network active = cm.getActiveNetwork();
+                android.net.LinkProperties props = active == null ? null : cm.getLinkProperties(active);
+                if (props != null) {
+                    for (java.net.InetAddress address : props.getDnsServers()) {
+                        String host = address.getHostAddress();
+                        if (host != null && !host.contains("%") && !address.isAnyLocalAddress()
+                                && !address.isLoopbackAddress()) servers.add(host);
+                    }
+                }
+            }
+        } catch (Exception error) {
+            android.util.Log.w("LinuxEngine", "Cannot read Android DNS", error);
+        }
+        if (servers.isEmpty()) {
+            servers.add("1.1.1.1");
+            servers.add("8.8.8.8");
+        }
+        Path etc = new File(root(), "etc").toPath();
+        Files.createDirectories(etc);
+        Path resolver = etc.resolve("resolv.conf");
+        if (Files.isSymbolicLink(resolver)) Files.delete(resolver);
+        StringBuilder config = new StringBuilder("# DNS from Android").append((char) 10);
+        for (String server : servers) config.append("nameserver ").append(server).append((char) 10);
+        config.append("options timeout:3 attempts:2").append((char) 10);
+        Files.write(resolver, config.toString().getBytes(StandardCharsets.UTF_8),
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+    }
+
     public void execute(String command, ConsoleListener callback) {
         if (process != null && process.isAlive()) { callback.line("Une autre commande est en cours"); callback.done(-1); return; }
         new Thread(() -> {
@@ -169,6 +205,7 @@ public final class LinuxEngine {
             try {
                 if (!isInstalled() || !prootReady()) throw new IOException("Ubuntu / PRoot non installé");
                 prepareGnuCoreutils();
+                prepareDns();
                 String nativeDir = context.getApplicationInfo().nativeLibraryDir;
                 String proot = nativeDir + "/libproot.so";
                 String loader = nativeDir + "/libproot-loader.so";

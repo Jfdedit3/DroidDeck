@@ -42,7 +42,9 @@ public final class PlasmaManager {
         String command = "set -e; " +
             "export DEBIAN_FRONTEND=noninteractive; " +
             "mkdir -p /tmp /var/tmp /root; chmod 1777 /tmp /var/tmp; " +
-            "apt-get update; " +
+            "echo 'Verification DNS...'; " +
+            "getent hosts archive.ubuntu.com || { echo 'ERREUR DNS: impossible de resoudre archive.ubuntu.com'; exit 21; }; " +
+            "apt-get update -o APT::Update::Error-Mode=any; " +
             "apt-get install -y --no-install-recommends " +
             "kde-plasma-desktop plasma-session-x11 tigervnc-standalone-server tigervnc-tools " +
             "dbus-x11 xauth xfonts-base; " +
