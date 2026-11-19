@@ -15,7 +15,7 @@ import java.util.Locale;
 
 public class MainActivity extends Activity {
     private final int bg = 0xff0b101b, panel = 0xff192333, accent = 0xff239af0;
-    private TextView state, detail, output;
+    private TextView state, detail, output, plasmaStatus;
     private EditText command;
     private Button install, run, stop, plasmaInstall, plasmaLaunch;
     private PlasmaManager plasma;
@@ -52,6 +52,7 @@ public class MainActivity extends Activity {
         text(desktopPanel, "Bureau X11 sur Ubuntu via TigerVNC. Un visualiseur VNC Android est nécessaire pour voir le bureau.", 13, 0xffb6c3d0, false);
         plasmaInstall = button(desktopPanel, "Installer KDE Plasma (gros téléchargement)", true, v -> installPlasma());
         plasmaLaunch = button(desktopPanel, "Lancer le bureau Plasma", true, v -> launchPlasma());
+        plasmaStatus = text(desktopPanel, "", 13, 0xffb6c3d0, false);
         text(desktopPanel, "Adresse VNC : 127.0.0.1:5901 (connexion locale uniquement)", 13, 0xffb6c3d0, false);
         TextView passwordView = text(desktopPanel, "Mot de passe VNC : " + plasma.password(), 14, 0xffbde4ff, true);
         button(desktopPanel, "Copier l'adresse et le mot de passe", false, v -> {
@@ -115,7 +116,11 @@ public class MainActivity extends Activity {
         install.setText(installed ? "Réinstaller Ubuntu" : "Installer Ubuntu");
         run.setEnabled(installed && engine.prootReady() && !busy);
         plasmaInstall.setEnabled(installed && !busy);
-        plasmaLaunch.setEnabled(installed && plasma.installed() && !busy);
+        // Keep the launch control clickable so missing prerequisites are explained.
+        plasmaLaunch.setEnabled(!busy);
+        plasmaStatus.setText(!installed ? "Statut Plasma : Ubuntu non installé" :
+            (plasma.installed() ? "Statut Plasma : installé — serveur VNC prêt à être lancé" :
+                "Statut Plasma : non installé ou installation incomplète"));
     }
 
     private void installUbuntu() {
@@ -171,13 +176,49 @@ public class MainActivity extends Activity {
     }
 
     private void launchPlasma() {
-        if (busy || !plasma.installed()) return;
+        if (busy) {
+            Toast.makeText(this, "Une opération Linux est déjà en cours", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (!engine.isInstalled()) {
+            append("\nImpossible de lancer Plasma : Ubuntu n'est pas installé.\n");
+            Toast.makeText(this, "Installe Ubuntu d'abord", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (!plasma.installed()) {
+            append("\nPlasma n'est pas encore installé ou l'installation précédente a échoué.\n");
+            append("Appuie sur Installer KDE Plasma puis consulte les dernières lignes du terminal.\n");
+            Toast.makeText(this, "Plasma non installé : relance son installation", Toast.LENGTH_LONG).show();
+            return;
+        }
         busy = true;
         install.setEnabled(false);
         refresh();
         append("\nDémarrage de KDE Plasma via TigerVNC...\n");
         append("Connecte un visualiseur VNC à 127.0.0.1:5901 avec le mot de passe indiqué.\n");
-        plasma.start(listenerFor("Session Plasma"));
+        plasma.start(new LinuxEngine.ConsoleListener() {
+            @Override public void line(String line) {
+                runOnUiThread(() -> {
+                    append(line + "\n");
+                    if (line.contains("VNC PRET")) {
+                        Toast.makeText(MainActivity.this,
+                            "Bureau démarré ! Ouvre une application VNC à 127.0.0.1:5901",
+                            Toast.LENGTH_LONG).show();
+                        plasmaStatus.setText("Session VNC démarrée : 127.0.0.1:5901");
+                    }
+                });
+            }
+            @Override public void done(int code) {
+                runOnUiThread(() -> {
+                    append("Session Plasma terminée (code " + code + ").\n");
+                    busy = false;
+                    refresh();
+                    if (code != 0) Toast.makeText(MainActivity.this,
+                        "Plasma n'a pas démarré : regarde l'erreur dans Terminal Ubuntu",
+                        Toast.LENGTH_LONG).show();
+                });
+            }
+        });
     }
 
     private void openViewer() {
