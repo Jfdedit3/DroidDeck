@@ -368,6 +368,7 @@ jobs:
           submodules: recursive
 
       - name: Check human authorship
+        if: github.repository == 'Droid-Deck/DroidDeck'
         env:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
@@ -912,7 +913,7 @@ jobs:
 
   sign:
     needs: [build, checks]
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.repository == 'Droid-Deck/DroidDeck' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       actions: read
@@ -924,7 +925,7 @@ jobs:
 
   scan:
     needs: sign
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.repository == 'Droid-Deck/DroidDeck' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
     uses: ./.github/workflows/scan.yml
@@ -935,7 +936,7 @@ jobs:
 
   packs:
     needs: [build, checks]
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.repository == 'Droid-Deck/DroidDeck' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       actions: read
@@ -944,7 +945,7 @@ jobs:
 
   announce:
     needs: [build, sign, packs]
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.repository == 'Droid-Deck/DroidDeck' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -994,13 +995,13 @@ jobs:
 
   catalog:
     needs: announce
-    if: ${{ always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.announce.result != 'skipped' }}
+    if: ${{ always() && github.repository == 'Droid-Deck/DroidDeck' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.announce.result != 'skipped' }}
     uses: ./.github/workflows/update-catalog.yml
     secrets: inherit
 
   retire-tests:
     needs: catalog
-    if: ${{ always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.catalog.result == 'success' }}
+    if: ${{ always() && github.repository == 'Droid-Deck/DroidDeck' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.catalog.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -1026,6 +1027,6 @@ jobs:
 
   catalog-after-retire:
     needs: retire-tests
-    if: ${{ always() && needs.retire-tests.result == 'success' }}
+    if: ${{ always() && github.repository == 'Droid-Deck/DroidDeck' && needs.retire-tests.result == 'success' }}
     uses: ./.github/workflows/update-catalog.yml
     secrets: inherit
