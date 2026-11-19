@@ -66,7 +66,16 @@ public final class PlasmaManager {
             "kde-plasma-desktop plasma-session-x11 tigervnc-standalone-server tigervnc-tools " +
             "dbus-x11 xauth xfonts-base >> \"$LOG\" 2>&1; then " +
             "echo 'Erreur installation Plasma (extrait du journal) :'; " +
-            "tail -n 100 \"$LOG\"; dpkg --audit || true; exit 34; fi; " +
+            "echo '--- PREMIERES ERREURS DPKG / APT (avec contexte) ---'; " +
+            "grep -n -i -E -B 4 -A 3 'error|failed|cannot|permission denied|no such file|bad file descriptor|not configured|dependency problems|traceback' \"$LOG\" | tail -n 140 || true; " +
+            "echo '--- DIAGNOSTIC CIBLE : ca-certificates ---'; " +
+            "dpkg --configure ca-certificates 2>&1 || true; " +
+            "echo '--- DIAGNOSTIC CIBLE : plasma-session-x11 ---'; " +
+            "dpkg --configure plasma-session-x11 2>&1 || true; " +
+            "echo '--- DIAGNOSTIC CIBLE : xserver-xorg ---'; " +
+            "dpkg --configure xserver-xorg 2>&1 || true; " +
+            "echo '--- FIN DES ERREURS APT ---'; " +
+            "tail -n 35 \"$LOG\"; dpkg --audit || true; exit 34; fi; " +
             "command -v startplasma-x11; command -v Xtigervnc; command -v tigervncpasswd; " +
             "test -z \"$(dpkg --audit)\" || { echo 'Paquets incomplets :'; dpkg --audit; exit 35; }; " +
             "touch /" + MARKER + "; echo 'Plasma installe et configure.'";
