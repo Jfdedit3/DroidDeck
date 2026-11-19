@@ -15,12 +15,19 @@ public final class RuntimeArchive {
     public static File archive(Context c) { return new File(c.getFilesDir(), "ubuntu-base-arm64.tar.gz"); }
     public static File verifiedFlag(Context c) { return new File(c.getFilesDir(), "ubuntu-base-arm64.verified"); }
 
+    public static boolean isVerified(Context c) {
+        File f = archive(c), marker = verifiedFlag(c);
+        if (!f.isFile() || f.length() == 0 || !marker.isFile()) return false;
+        try (BufferedReader reader = new BufferedReader(new FileReader(marker))) {
+            return SHA256.equalsIgnoreCase(reader.readLine());
+        } catch (IOException e) { return false; }
+    }
     public static void download(Context context, Listener listener) {
         new Thread(() -> {
             File file = archive(context), temp = new File(file.getPath() + ".part");
             HttpURLConnection con = null;
             try {
-                if (file.isFile() && verifiedFlag(context).isFile()) {
+                if (isVerified(context)) {
                     listener.update("Image déjà téléchargée", 100, true);
                     return;
                 }
@@ -45,7 +52,9 @@ public final class RuntimeArchive {
                 if (!SHA256.equals(sha.toString())) throw new IOException("SHA-256 incorrect : téléchargement rejeté");
                 if (file.exists() && !file.delete()) throw new IOException("Ancienne archive non supprimable");
                 if (!temp.renameTo(file)) throw new IOException("Impossible de finaliser l'archive");
-                if (!verifiedFlag(context).createNewFile() && !verifiedFlag(context).isFile()) throw new IOException("Impossible de sauvegarder la vérification");
+                try (FileWriter writer = new FileWriter(verifiedFlag(context))) {
+                    writer.write(SHA256 + "\n");
+                }
                 listener.update("Image Ubuntu téléchargée et vérifiée", 100, true);
             } catch (Exception e) {
                 temp.delete();
