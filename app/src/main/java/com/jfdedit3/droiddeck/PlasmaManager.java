@@ -38,19 +38,38 @@ public final class PlasmaManager {
             callback.done(-1);
             return;
         }
-        // The Ubuntu 26.04 X11 session is a separate package.
-        String command = "set -e; " +
+        // Ubuntu running under PRoot does not have systemd as PID 1.
+        // Prevent package post-install scripts from trying to start daemons.
+        // Also repair any packages left unpacked by an earlier interrupted install.
+        String command =
+            "set -e; " +
             "export DEBIAN_FRONTEND=noninteractive; " +
-            "mkdir -p /tmp /var/tmp /root; chmod 1777 /tmp /var/tmp; " +
-            "echo 'Verification DNS...'; " +
-            "getent hosts archive.ubuntu.com || { echo 'ERREUR DNS: impossible de resoudre archive.ubuntu.com'; exit 21; }; " +
-            "apt-get update -o APT::Update::Error-Mode=any; " +
-            "apt-get install -y --no-install-recommends " +
+            "mkdir -p /tmp /var/tmp /root /usr/sbin; chmod 1777 /tmp /var/tmp; " +
+            "if [ ! -e /usr/sbin/policy-rc.d ]; then " +
+            "printf '#!/bin/sh\\nexit 101\\n' > /usr/sbin/policy-rc.d; chmod 755 /usr/sbin/policy-rc.d; fi; " +
+            "LOG=/root/droiddeck-plasma-install.log; " +
+            "echo 'Reparation des paquets deja extraits...'; " +
+            "dpkg --configure -a > \"$LOG\" 2>&1 || echo 'Certains paquets necessitent une reparation supplementaire'; " +
+            "echo 'Correction des dependances APT...'; " +
+            "if ! apt-get -f install -y --no-install-recommends >> \"$LOG\" 2>&1; then " +
+            "echo 'Erreur de reparation APT (extrait du journal) :'; " +
+            "tail -n 100 \"$LOG\"; dpkg --audit || true; exit 31; fi; " +
+            "echo 'Finalisation de dpkg...'; " +
+            "if ! dpkg --configure -a >> \"$LOG\" 2>&1; then " +
+            "echo 'Erreur de configuration dpkg (extrait du journal) :'; " +
+            "tail -n 100 \"$LOG\"; dpkg --audit || true; exit 32; fi; " +
+            "echo 'Mise a jour des index APT...'; " +
+            "if ! apt-get update -o APT::Update::Error-Mode=any >> \"$LOG\" 2>&1; then " +
+            "tail -n 65 \"$LOG\"; exit 33; fi; " +
+            "echo 'Verification et installation des composants Plasma X11 / VNC...'; " +
+            "if ! apt-get install -y --no-install-recommends " +
             "kde-plasma-desktop plasma-session-x11 tigervnc-standalone-server tigervnc-tools " +
-            "dbus-x11 xauth xfonts-base; " +
+            "dbus-x11 xauth xfonts-base >> \"$LOG\" 2>&1; then " +
+            "echo 'Erreur installation Plasma (extrait du journal) :'; " +
+            "tail -n 100 \"$LOG\"; dpkg --audit || true; exit 34; fi; " +
             "command -v startplasma-x11; command -v Xtigervnc; command -v tigervncpasswd; " +
-            "touch /" + MARKER + "; echo 'Plasma installe et pret.'";
-        // Correct absolute marker location is rootfs/.droiddeck-plasma-x11
+            "test -z \"$(dpkg --audit)\" || { echo 'Paquets incomplets :'; dpkg --audit; exit 35; }; " +
+            "touch /" + MARKER + "; echo 'Plasma installe et configure.'";
         linux.execute(command, callback);
     }
 
