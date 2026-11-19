@@ -91,12 +91,22 @@ public final class PlasmaManager {
         String pass = password(); // strict 8-char lowercase hex, never accepts shell metacharacters
         String command =
             "set -e; " +
-            "mkdir -p /root/.vnc /tmp/.X11-unix /tmp/runtime-root; " +
-            "chmod 700 /tmp/runtime-root; " +
-            "printf '%s\\n' '" + pass + "' | tigervncpasswd -f > /root/.vnc/passwd; " +
-            "chmod 600 /root/.vnc/passwd; " +
+            "mkdir -p /root/.config/tigervnc /tmp/.X11-unix /tmp/runtime-root; " +
+            "chmod 700 /root/.config/tigervnc /tmp/runtime-root; " +
+            "if [ -d /root/.vnc ]; then " +
+            "cp -an /root/.vnc/. /root/.config/tigervnc/ 2>/dev/null || true; " +
+            "mv /root/.vnc /root/.vnc.backup.$(date +%s); fi; " +
+            "printf '%s\\n' '" + pass + "' | tigervncpasswd -f > /root/.config/tigervnc/passwd; " +
+            "chmod 600 /root/.config/tigervnc/passwd; " +
+            "printf '%s\\n' '#!/bin/sh' 'unset SESSION_MANAGER' " +
+            "'unset DBUS_SESSION_BUS_ADDRESS' 'export TMPDIR=/tmp' " +
+            "'export XDG_SESSION_TYPE=x11' 'export XDG_CURRENT_DESKTOP=KDE' " +
+            "'export XDG_RUNTIME_DIR=/tmp/runtime-root' 'export QT_X11_NO_MITSHM=1' " +
+            "'export LIBGL_ALWAYS_SOFTWARE=1' " +
+            "'exec dbus-run-session -- startplasma-x11' > /root/.config/tigervnc/xstartup; " +
+            "chmod 700 /root/.config/tigervnc/xstartup; " +
             "rm -f /tmp/.X11-unix/X1; " +
-            "Xtigervnc :1 -localhost -SecurityTypes VncAuth -PasswordFile /root/.vnc/passwd " +
+            "Xtigervnc :1 -localhost -SecurityTypes VncAuth -PasswordFile /root/.config/tigervnc/passwd " +
             "-rfbport 5901 -geometry 1280x720 -depth 24 & " +
             "server=$!; sleep 3; " +
             "if ! kill -0 $server 2>/dev/null; then echo 'TigerVNC n a pas demarre'; exit 1; fi; " +
