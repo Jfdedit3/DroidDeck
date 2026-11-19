@@ -1,6 +1,7 @@
 package com.jfdedit3.droiddeck;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.os.Bundle;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -19,6 +20,7 @@ public class MainActivity extends Activity {
     private EditText command;
     private Button install, run, stop, plasmaInstall, plasmaLaunch;
     private PlasmaManager plasma;
+    private DroidDeckRuntimeInstaller official;
     private ScrollView outputScroll;
     private volatile boolean busy;
     private LinuxEngine engine;
@@ -27,6 +29,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         engine = new LinuxEngine(this);
         plasma = new PlasmaManager(this, engine);
+        official = new DroidDeckRuntimeInstaller(this);
         getWindow().setStatusBarColor(bg);
         getWindow().setNavigationBarColor(bg);
         ScrollView scroll = new ScrollView(this);
@@ -44,7 +47,7 @@ public class MainActivity extends Activity {
         text(installPanel, "Environnement Linux", 21, Color.WHITE, true);
         state = text(installPanel, "", 15, 0xffd9e4f1, true);
         detail = text(installPanel, "", 13, 0xffb6c3d0, false);
-        install = button(installPanel, "Installer Ubuntu", true, v -> installUbuntu());
+        install = button(installPanel, "Installer Ubuntu + Plasma de DroidDeck", true, v -> installOfficial());
         button(installPanel, "Vérifier l'installation", false, v -> refresh());
 
         LinearLayout desktopPanel = panel(root);
@@ -102,7 +105,7 @@ public class MainActivity extends Activity {
         outputScroll.addView(output);
 
         LinearLayout infoPanel = panel(root);
-        text(infoPanel, "État de la version 0.3", 19, Color.WHITE, true);
+        text(infoPanel, "État de la version 0.4", 19, Color.WHITE, true);
         text(infoPanel, "✅ Installation Ubuntu Base ARM64\n✅ Téléchargement vérifié SHA-256\n✅ Lancement de commandes via PRoot\n✅ Journal et arrêt des commandes\n⏳ Terminal interactif complet (PTY)\n✅ Installation KDE Plasma X11 et serveur VNC\n⏳ Affichage intégré dans l'APK (visualiseur VNC externe requis)\n⏳ FEX / Wine / Proton", 13, 0xffbecdde, false);
         setContentView(scroll);
         refresh();
@@ -113,14 +116,46 @@ public class MainActivity extends Activity {
         state.setText(installed ? "Ubuntu installé" : "Ubuntu non installé");
         String binary = engine.prootReady() ? "PRoot ARM64 : présent" : "PRoot ARM64 : absent dans l'APK";
         detail.setText(binary + "\nArchive : " + (RuntimeArchive.archive(this).isFile() ? "disponible" : "absente") + "\nStockage : " + getFilesDir().getAbsolutePath());
-        install.setText(installed ? "Réinstaller Ubuntu" : "Installer Ubuntu");
+        install.setText(official.installed() ? "Ubuntu + Plasma DroidDeck installés" : "Installer Ubuntu + Plasma de DroidDeck");
         run.setEnabled(installed && engine.prootReady() && !busy);
-        plasmaInstall.setEnabled(installed && !busy);
+        plasmaInstall.setEnabled(installed && !busy && !official.installed());
         // Keep the launch control clickable so missing prerequisites are explained.
         plasmaLaunch.setEnabled(!busy);
-        plasmaStatus.setText(!installed ? "Statut Plasma : Ubuntu non installé" :
+        plasmaStatus.setText(official.installed() ? "Plasma officiel DroidDeck installé. Le bureau Wayland nécessite un moteur graphique compatible ; la session VNC n’est pas fournie par ce pack." : !installed ? "Statut Plasma : Ubuntu non installé" :
             (plasma.installed() ? "Statut Plasma : installé — serveur VNC prêt à être lancé" :
                 "Statut Plasma : non installé ou installation incomplète"));
+    }
+
+    private void installOfficial() {
+        if (busy) return;
+        if (official.installed()) {
+            append("\nLe runtime Ubuntu + Plasma de DroidDeck est déjà installé.\n");
+            return;
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("Installer l'Ubuntu Plasma officiel de DroidDeck")
+            .setMessage("Téléchargement des archives officielles vérifiées : Ubuntu ARM64 (~292 Mo) et Kubuntu Plasma (~898 Mo). Environ 1,2 Go à télécharger, et plusieurs Go libres nécessaires pour l'extraction et la sauvegarde de l'ancien Ubuntu. L'ancienne installation sera conservée sous 'ubuntu.before-droiddeck'. Voulez-vous continuer ?")
+            .setNegativeButton("Annuler", null)
+            .setPositiveButton("Installer", (dialog, which) -> {
+                busy = true;
+                install.setEnabled(false);
+                refresh();
+                append("\nInstallation des archives Ubuntu + Plasma officielles de DroidDeck...\n");
+                official.install((message, progress, finished) -> runOnUiThread(() -> {
+                    if (progress >= 0) state.setText(message + " : " + progress + "%");
+                    else state.setText(message);
+                    if (message.startsWith("Échec") || finished) append(message + "\n");
+                    if (finished) {
+                        busy = false;
+                        refresh();
+                        if (official.installed())
+                            new AlertDialog.Builder(this)
+                                .setTitle("Environnement officiel installé")
+                                .setMessage("Ubuntu et Kubuntu Plasma ont été extraits depuis DroidDeck. Attention : le pack utilise le bureau Wayland de DroidDeck, dont l'affichage Android n'est pas encore intégré à DroidDeck Lite. Le bouton VNC historique ne peut pas lancer cette session.")
+                                .setPositiveButton("OK", null).show();
+                    }
+                }));
+            }).show();
     }
 
     private void installUbuntu() {
@@ -183,6 +218,11 @@ public class MainActivity extends Activity {
         if (!engine.isInstalled()) {
             append("\nImpossible de lancer Plasma : Ubuntu n'est pas installé.\n");
             Toast.makeText(this, "Installe Ubuntu d'abord", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (official.installed() && !plasma.installed()) {
+            append("\nBureau Plasma officiel installé. Cette application ne possède pas encore le serveur Wayland intégré à DroidDeck.\n");
+            Toast.makeText(this, "Plasma officiel installé : affichage DroidDeck Wayland non encore intégré", Toast.LENGTH_LONG).show();
             return;
         }
         if (!plasma.installed()) {

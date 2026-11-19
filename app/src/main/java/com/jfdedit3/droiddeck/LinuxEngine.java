@@ -22,7 +22,11 @@ public final class LinuxEngine {
     private static final String MARKER = ".droiddeck-installed-v2";
     public LinuxEngine(Context context) { this.context = context.getApplicationContext(); }
     public File root() { return new File(context.getFilesDir(), "ubuntu"); }
-    public boolean isInstalled() { return new File(root(), MARKER).isFile() && new File(root(), "bin/sh").exists(); }
+    public boolean isInstalled() {
+        return (new File(root(), MARKER).isFile() ||
+                new File(root(), ".droiddeck-official-plasma").isFile()) &&
+                (new File(root(), "bin/sh").exists() || new File(root(), "usr/bin/sh").exists());
+    }
     public boolean prootReady() {
         return new File(context.getApplicationInfo().nativeLibraryDir, "libproot.so").isFile()
             && new File(context.getApplicationInfo().nativeLibraryDir, "libproot-loader.so").isFile();
