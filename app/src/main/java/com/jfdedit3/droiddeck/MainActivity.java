@@ -17,7 +17,8 @@ public class MainActivity extends Activity {
     private final int bg = 0xff0b101b, panel = 0xff192333, accent = 0xff239af0;
     private TextView state, detail, output;
     private EditText command;
-    private Button install, run, stop;
+    private Button install, run, stop, plasmaInstall, plasmaLaunch;
+    private PlasmaManager plasma;
     private ScrollView outputScroll;
     private volatile boolean busy;
     private LinuxEngine engine;
@@ -25,6 +26,7 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         engine = new LinuxEngine(this);
+        plasma = new PlasmaManager(this, engine);
         getWindow().setStatusBarColor(bg);
         getWindow().setNavigationBarColor(bg);
         ScrollView scroll = new ScrollView(this);
@@ -44,6 +46,24 @@ public class MainActivity extends Activity {
         detail = text(installPanel, "", 13, 0xffb6c3d0, false);
         install = button(installPanel, "Installer Ubuntu", true, v -> installUbuntu());
         button(installPanel, "Vérifier l'installation", false, v -> refresh());
+
+        LinearLayout desktopPanel = panel(root);
+        text(desktopPanel, "Bureau KDE Plasma 6", 21, Color.WHITE, true);
+        text(desktopPanel, "Bureau X11 sur Ubuntu via TigerVNC. Un visualiseur VNC Android est nécessaire pour voir le bureau.", 13, 0xffb6c3d0, false);
+        plasmaInstall = button(desktopPanel, "Installer KDE Plasma (gros téléchargement)", true, v -> installPlasma());
+        plasmaLaunch = button(desktopPanel, "Lancer le bureau Plasma", true, v -> launchPlasma());
+        text(desktopPanel, "Adresse VNC : 127.0.0.1:5901 (connexion locale uniquement)", 13, 0xffb6c3d0, false);
+        TextView passwordView = text(desktopPanel, "Mot de passe VNC : " + plasma.password(), 14, 0xffbde4ff, true);
+        button(desktopPanel, "Copier l'adresse et le mot de passe", false, v -> {
+            android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("DroidDeck VNC", "Adresse : 127.0.0.1:5901\\nMot de passe : " + plasma.password()));
+            Toast.makeText(this, "Coordonnées VNC copiées", Toast.LENGTH_SHORT).show();
+        });
+        button(desktopPanel, "Ouvrir une application VNC", false, v -> openViewer());
+        button(desktopPanel, "Arrêter la session Plasma", false, v -> {
+            engine.stop();
+            append("Arrêt du processus PRoot demandé.\\n");
+        });
 
         LinearLayout terminalPanel = panel(root);
         text(terminalPanel, "Terminal Ubuntu", 21, Color.WHITE, true);
@@ -81,8 +101,8 @@ public class MainActivity extends Activity {
         outputScroll.addView(output);
 
         LinearLayout infoPanel = panel(root);
-        text(infoPanel, "État de la version 0.2", 19, Color.WHITE, true);
-        text(infoPanel, "✅ Installation Ubuntu Base ARM64\n✅ Téléchargement vérifié SHA-256\n✅ Lancement de commandes via PRoot\n✅ Journal et arrêt des commandes\n⏳ Terminal interactif complet (PTY)\n⏳ KDE Plasma / affichage graphique\n⏳ FEX / Wine / Proton", 13, 0xffbecdde, false);
+        text(infoPanel, "État de la version 0.3", 19, Color.WHITE, true);
+        text(infoPanel, "✅ Installation Ubuntu Base ARM64\n✅ Téléchargement vérifié SHA-256\n✅ Lancement de commandes via PRoot\n✅ Journal et arrêt des commandes\n⏳ Terminal interactif complet (PTY)\n✅ Installation KDE Plasma X11 et serveur VNC\\n⏳ Affichage intégré dans l'APK (visualiseur VNC externe requis)\n⏳ FEX / Wine / Proton", 13, 0xffbecdde, false);
         setContentView(scroll);
         refresh();
     }
@@ -94,6 +114,8 @@ public class MainActivity extends Activity {
         detail.setText(binary + "\nArchive : " + (RuntimeArchive.archive(this).isFile() ? "disponible" : "absente") + "\nStockage : " + getFilesDir().getAbsolutePath());
         install.setText(installed ? "Réinstaller Ubuntu" : "Installer Ubuntu");
         run.setEnabled(installed && engine.prootReady() && !busy);
+        plasmaInstall.setEnabled(installed && !busy);
+        plasmaLaunch.setEnabled(installed && plasma.installed() && !busy);
     }
 
     private void installUbuntu() {
@@ -125,6 +147,49 @@ public class MainActivity extends Activity {
             @Override public void done(int code) { runOnUiThread(() -> { append("[Terminé : code " + code + "]\n"); busy = false; install.setEnabled(true); refresh(); }); }
         });
     }
+    private LinuxEngine.ConsoleListener listenerFor(String operation) {
+        return new LinuxEngine.ConsoleListener() {
+            @Override public void line(String line) { runOnUiThread(() -> append(line + "\\n")); }
+            @Override public void done(int code) {
+                runOnUiThread(() -> {
+                    append(operation + " termine (code " + code + ").\\n");
+                    busy = false;
+                    install.setEnabled(true);
+                    refresh();
+                });
+            }
+        };
+    }
+
+    private void installPlasma() {
+        if (busy || !engine.isInstalled()) return;
+        busy = true;
+        install.setEnabled(false);
+        refresh();
+        append("\\nInstallation de KDE Plasma depuis les dépôts Ubuntu...\\n");
+        plasma.install(listenerFor("Installation Plasma"));
+    }
+
+    private void launchPlasma() {
+        if (busy || !plasma.installed()) return;
+        busy = true;
+        install.setEnabled(false);
+        refresh();
+        append("\\nDémarrage de KDE Plasma via TigerVNC...\\n");
+        append("Connecte un visualiseur VNC à 127.0.0.1:5901 avec le mot de passe indiqué.\\n");
+        plasma.start(listenerFor("Session Plasma"));
+    }
+
+    private void openViewer() {
+        android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW,
+            android.net.Uri.parse("vnc://127.0.0.1:5901"));
+        try {
+            startActivity(intent);
+        } catch (android.content.ActivityNotFoundException e) {
+            Toast.makeText(this, "Installe d'abord un visualiseur VNC puis connecte-toi à 127.0.0.1:5901", Toast.LENGTH_LONG).show();
+        }
+    }
+
     private void append(String line) {
         if (output.length() > 100000) output.setText("[Sortie précédente tronquée]\n");
         output.append(line);
