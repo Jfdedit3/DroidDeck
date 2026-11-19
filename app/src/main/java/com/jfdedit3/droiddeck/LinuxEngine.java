@@ -214,7 +214,7 @@ public final class LinuxEngine {
                 // Android's system linker can execute native .so files from the APK.
                 if (Build.VERSION.SDK_INT >= 29) args.add("/system/bin/linker64");
                 args.add(proot);
-                Collections.addAll(args, "-0", "-r", root().getAbsolutePath(), "-w", "/root",
+                Collections.addAll(args, "--link2symlink", "-0", "-r", root().getAbsolutePath(), "-w", "/root",
                     "-b", "/dev", "-b", "/proc", "-b", "/sys");
                 File external = Environment.getExternalStorageDirectory();
                 if (external.isDirectory()) Collections.addAll(args, "-b", external.getAbsolutePath() + ":/sdcard");
